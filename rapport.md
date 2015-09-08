@@ -36,6 +36,7 @@ Detta är det enklaste mönstret som fortfarande är värt att lyftas fram. Det 
 
 Alla som är intresserade av att skapa realtidsspel utan att använda en befintlig spelmotor (hmm ... rekommenderas inte om målet är att göra spel fort) kommer att programmera en game loop väldigt tidigt. I JavaScript kan man påbörja och komma långt som spelprogrammerare med endast följande kod. Detta är en aningen förenklad variant av det jag började med.
 
+```js
     function update(time) { /* ... */ }
     function draw() { /* ... */ }
 
@@ -52,10 +53,8 @@ Alla som är intresserade av att skapa realtidsspel utan att använda en befintl
 
     // Starta loopen
     requestAnimationFrame(loop);
+```
 
-
-
-- Component pattern
 
 ### Finite State Machine (FSM)
 
@@ -63,14 +62,14 @@ FSM är ett vanligt sätt att hålla reda på tillstånd i diverse program. Det 
 
 Om vi tänker oss att input är knapptryckningar så kan spelarens figur reagera på olika sätt beroende på vilket tillstånd figuren är i när knapptryckningen händer. Det trevliga är att man kan skicka alla knapptryckningar till figuren och vara säker på att den bara reagerar på de kommandon som för tillfället är aktuella. Tillstånden dikterar inget mer än vilken input som orsakar en förflyttning till ett annat tillstånd. Det är upp till programmeraren att fylla tillstånden med annat.
 
-I mitt fall la jag till tre saker som en spelprogrammerare skulle kunna använda för att konstruera ett beteende. När ett tillstånd går från inaktivt till aktivt och tvärtom så exekveras in- och utträderfunktioner, om de finns. Under tiden däremellan, när tillståndet är aktivt, så kan en funktion exekveras vid varje uppdatering.
+I mitt fall la jag till tre saker som en spelprogrammerare skulle kunna använda för att konstruera ett beteende. När ett tillstånd går från inaktivt till aktivt och tvärtom så exekveras in- och utträdesfunktioner, om de finns. Under tiden däremellan, när tillståndet är aktivt, så kan en funktion exekveras vid varje uppdatering.
 
 
-### stack för scenes
+### Stack för scenes
 
-Från början var idén att använda FSM för att hantera om spelet var pausat, vilken bana man var på, och vad som händer i corner cases, men jag upptäckte snart att det blev väldigt mycket att hålla reda på. När denna känsla infinner sig bör man andas in lugnt och försöka lista ut om det finns ett enklare sätt att lösa saker på.
+Från början var idén att använda FSM för att hantera om spelet var pausat, vilken bana man var på, och vad som händer i corner cases (?), men jag upptäckte snart att det blev väldigt mycket att hålla reda på. När denna känsla infinner sig bör man andas in lugnt och försöka lista ut om det finns ett enklare sätt att lösa saker.
 
-Misstaget var att varje bana då behövde känna till vilka andra banor som finns. Det är problematiskt när man bestämmer sig mitt i att et viss bana behöver tas bort, eller om man vill lägga till en bana i en serie av andra banor.
+Misstaget var att varje bana då behövde känna till vilka andra banor som finns. Det är problematiskt när man bestämmer sig mitt i att en viss bana behöver tas bort, eller om man vill lägga till en bana i en serie av andra banor.
 
 BILD PÅ STATE MACHINE
 
@@ -84,8 +83,26 @@ KODSKILLNAD?
 
 Nackdelen med denna approach är att om man inte är försiktig och bygger en för "hög stack" så äter man snabbt upp arbetsminnet.
 
-- Entity
-- Builder pattern
+### Entity / Component / Builder
+
+#### Entity / Component
+När man programmerar objektorienterat så finns ett antal sätt att återanvända kod. Det troligen vanligaste sätt att återanvända kod är genom arv. I spelvärlden kan detta se ut som att fiender härstammar från en klass `Enemy`, och utökar/beskriver en viss typ av fiende i subklasserna `BigEnemy` och `SmallEnemy`. När det är väldigt få antal variationer som i det förra exemplet så kan arv vara utmärkt men när antalet variationer ökar eller när en `Enemy` delar funktionalitet med saker som inte är fiender så finns en risk att antalet klasser blir svårhanterligt många. Dessutom finns det stor risk att vissa klasser innehåller funktionalitet som den inte behöver.
+
+En lösning till detta är att använda designmönstrena Entity och Component. Dessa mönster tillsammans bryter ut funktionalitet i komponenter som kan kombineras ihop i en så kallad *entity* för att skapa olika typer av saker. 
+
+Man kan föreställa sig en *entity* som en "grej" som existerar i spelvärlden. Exakt vad det är för något beror helt och hållet på vilka komponenter den innehåller. Det är kombinationen av komponenter som gör en *entity* till en fiende, pickup, vägg, pistolkula eller spelare.
+
+Spelmotorn måste hantera alla *entitys* som existerar och be dem att uppdatera sig själva. Detta kan ske direkt i t. ex. en spelmotors huvudklass eller i en klass som har som sitt syfte att hålla reda på alla *entitys*.
+
+
+#### Builder/Factory pattern
+Eftersom fiendetyperna `BigEnemy` och `SmallEnemy` inte längre är sina egna klasser så kan de inte längre instansieras med en rad kod, e.g. `new BigEnemy()`. När man använder Entity/Component krävs det att man skapar en `Entity`-klass samt alla komponentklasser som ska användas. Dessutom behöver varje komponent fästas i en entity. Det kan lätt bli mycket kod som också upprepas i onödan.
+
+För att råda bot på detta kan man använda designmönster som Builder eller Factory. Dessa enkapsulerar skapandet av mer komplicerade objekt, ungefär som ett recept. Då reduceras kodmängden som behövs för att skapa en viss sak till en enda funktionsanrop. I likhet ger man som kund på ett café sällan instruktioner steg-för-steg utan oftast tittar man på menyn och beställer t. ex. en cappucino. Vill man ha något utöver det vanliga får man beskriva mer i detalj, och om man beställer samma sak många gånger om tröttnar cafépersonalen till slut och lägger till din beställning som ett menyalternativ istället.
+
+
+### Fysikmotorn???
+Finns det några särskilda mönster som användes i fysikmotorn?
 
 
 ## Komponenter
@@ -122,7 +139,7 @@ Nackdelen med denna approach är att om man inte är försiktig och bygger en f�
 
 ## Spelexempel
 
-En spelmotor är inte särskilt mycket på enga ben. Dess styrka visar sig först när man faktiskt börjar bygga spel med den.
+En spelmotor är inte särskilt mycket på egna ben. Dess styrka visar sig först när man faktiskt börjar bygga spel med den.
 
 
 ### Pong, ett simpelt spel
@@ -133,7 +150,7 @@ Kodexempel här? Och sedan visa på hur det blev annorlunda.
 
 I detta skede fanns både en Canvas2D- och WebGL-renderare som kunde bytas ut med varandra med knappt märkbar skillnad i den renderade bilden.
 
-Pong-spelet visade inte på de begränsningar som fanns i och med att det var byggt med själva kapabiliteterna som redan fanns. Svagheterna visade sig först när ett mer involverat exempel byggdes.
+Pong-spelet visade inte på de begränsningar som fanns (varför?) i och med att det var byggt med själva kapabiliteterna som redan fanns (vilket var ... ?). Svagheterna visade sig först när ett mer involverat exempel byggdes.
 
 
 ### Jump Dude
@@ -156,3 +173,4 @@ Nope. Det fanns ingen mening att fokusera på hur snabb spemotorn var under utve
 Däremot finns ytterligare en fälla att trilla ned i. Och jag föll ner i den. Att planera och arkitekterna utifrån antaganden om vad som kommer vara viktigt eller inte gör att mycket tid spenderas på att bygga för dessa gissningar. Som det visade sig under utveckligens tid hade jag idéer om vad som var viktigt och inte. Det bet mig i baken och gjorde att jag grävde i fel hörn alldeles för länge. Detta misstag kallas premature architecture. Det är inte fel att arkitektera ifall man faktiskt vet med säkerhet att problemen kommer att uppstå. Om man är det minsta osäker så ska man bara skriva upp idén och återbesöka den när problemet verkar ha uppstått. Vet man av erfarenhet att en game loop behövs för spelet så är det helt okej att implementera den i förebyggande syfte. Men det är en hal stig att börja vandra och man bör vara mycket försiktig och observant, helt plötsligt har man jobbat en månad i tron om att man jobbat på spelet, men i själva verket ser det likadant ut som fyra veckor innan.
 
 Det finns ett tankesätt som lyder "Make it work. Make it right. Make it fast.". Make it right syftar på att se till att driva bollen framåt, och det är helt okej att skriva kod som man helst inte talar högt om. Make it right syftar till när man ägnar sig åt att refaktorera den möjligtvis pinsamma kod, men som fungerar. Det sista steget är make it fast, och detta är något vi vill ägna oss åt först när vi identifierat att koden eller programmets prestanda påverkar programmets kvalitet.
+
