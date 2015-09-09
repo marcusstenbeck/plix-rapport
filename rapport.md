@@ -100,9 +100,28 @@ Eftersom fiendetyperna `BigEnemy` och `SmallEnemy` inte längre är sina egna kl
 
 För att råda bot på detta kan man använda designmönster som Builder eller Factory. Dessa enkapsulerar skapandet av mer komplicerade objekt, ungefär som ett recept. Då reduceras kodmängden som behövs för att skapa en viss sak till en enda funktionsanrop. I likhet ger man som kund på ett café sällan instruktioner steg-för-steg utan oftast tittar man på menyn och beställer t. ex. en cappucino. Vill man ha något utöver det vanliga får man beskriva mer i detalj, och om man beställer samma sak många gånger om tröttnar cafépersonalen till slut och lägger till din beställning som ett menyalternativ istället.
 
+Skillnad mellan Builder och Factory?
+
+Factory
+"factory method pattern requires the entire object to be built in a single method call, with all the parameters pass in on a single line. The final object will be returned."
+
+Builder
+"in essence a wrapper object around all the possible parameters you might want to pass into a constructor invocation. This allows you to use setter methods to slowly build up your parameter list."
+
+(http://stackoverflow.com/questions/757743/what-is-the-difference-between-builder-design-pattern-and-factory-design-pattern)
+
 
 ### Fysikmotorn???
 Finns det några särskilda mönster som användes i fysikmotorn?
+
+#### Callback?
+Callbacks används för att spelmotorn ska kunna reagera på något särskilt som händer. Det är aningen meningslöst att ha en fysikmotor utan något sätt att prata med spelmotorn.
+
+#### Bitmask Layers
+Ibland vill man ha objekt som krockar med endast vissa saker. I spelet används det till små detaljer som flyger omkring men som inte bör påverka spelaren. Jag har använt bitmasking för att tillåta ett litet antal lager. Ett fysikkropp kan tillhöra en eller flera lager. I Jump Dude finns två lager; ett förgrunds- och ett backgrundslager. Förgrundlagret innehåller spelaren och allt som spelaren kan kollidera med, dvs mark, power-ups, fiender och så vidare. Bakgrundslagret innehållet det mesta som förgrundslagret innehåller förutom spelaren och fiender. Denna konfiguration gör att man kan lägga in fysikkroppar som studsar omkring men som inte påverkar spelaren eller fiender. Ett tydligt exempel är om spelaren slår sönder en låda och fragment av lådan studsar omkring. Vi vill inte att spelarens figure ska påverkas av dessa små lådfragment, men vi vill att de ska kollidera med resten av världen. Fragmenten finns alltså endast på bakgrundslagret. När spelaren och lådfragmenten överlappar ser fysikmotorn att spelaren inte tillhör ett lager som fragmentet också tillhör, så därför ignoreras den potentiella kollisionen.
+
+#### Fixed timestep from variable duration
+Inte direkt ett designmönster, utan mer en metod för att se till att fysikmotorn inte tar för stora steg i varje iteration.
 
 
 ## Komponenter
