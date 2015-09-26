@@ -585,8 +585,9 @@ Tekniskt sett så tillhör inte _fsm_-biblioteket spelmotorn, trots att den utve
 
 #### 2D-rendering med WebGL och Canvas2D
 
-I detta skede fanns både en Canvas2D- och WebGL-renderare som kunde bytas ut med varandra med knappt märkbar skillnad i den renderade bilden. För den som är intresserad av att se hur Canvas2D och WebGL skiljer sig finns koden för [CanvasRenderer](https://github.com/marcusstenbeck/plix/blob/e9f58401f7ad317a388ed14425f9ab21f256e35d/src/plix/CanvasRenderer.js) och [WebGLRenderer](https://github.com/marcusstenbeck/plix/blob/e9f58401f7ad317a388ed14425f9ab21f256e35d/src/plix/WebGLRenderer.js).
+I detta skede fanns både en Canvas2D- och WebGL-renderare som kunde bytas ut med varandra med knappt märkbar skillnad i den renderade bilden. För den som är intresserad av att se hur Canvas2D och WebGL skiljer sig finns koden för [CanvasRenderer](https://github.com/marcusstenbeck/plix/blob/e9f58401f7ad317a388ed14425f9ab21f256e35d/src/plix/CanvasRenderer.js) och [WebGLRenderer](https://github.com/marcusstenbeck/plix/blob/e9f58401f7ad317a388ed14425f9ab21f256e35d/src/plix/WebGLRenderer.js). För ett såhär simpelt spel är den klurigaste uppgifter att översätta mellan spelets, Canvas2D:s och WebGL:s koordinatsystem. Spelet och Canvas2D delar koordinatsystem; en pixel per enhet, x-axeln pekar höger, y-axeln pekar nedåt och koordinaten `(0,0)` är i övre vänstra hörnet. I WebGL är koordinaten `(0,0)` i mitten, y-axeln pekar uppåt, och både x- och y-axel har värden `[-1,1]` där `1` är höger/topp och `-1` är vänster/botten av `<canvas>`-elementet.
 
+BILD PÅ KOORDINATSYSTEMEN
 
 
 ### Spel 2: Jump Dude
@@ -604,17 +605,126 @@ Det är jävligt mycket kod i ett spel som inte är en del av spelmotorn. Alla s
 
 #### Utmaning: När något händer med A, gör också något med B
 
-- Bättre meddelanden genom spelet. Just nu finns bara stöd för entititeter att kontrollera internt. Det finns inget globalt sätt för entiteter att kommunicera med varandra.
+Att från en entity få något att hända med en annan entity var den utmaning jag stötte på mer än andra problem. Två exempel ur spelet är (1) när spelaren dör animeras kameran runt spelarens position och (2) när spelarens figur landar så skakar kameran till.
 
-De största problem som uppstod var med kommunikation mellan olika saker som hände i spelet. När något händer i en del av spelet bör det kunna påverka vad som händer i ett annat ställe. Till exempel kameran skakar till när spelarens figur landar på marken. Just nu är det aningen klumpigt inlagt med globala variabler och som callback från fysikmotorn.
+```js
+// Player just entered the death state
 
-Callbacken från fysikmotorn var intressant, eftersom fysikmotorn onekligen måste kunna meddela spelmotorn om händelser.
+ent.script = function(ent) {
+    
+  /* ... code stopping controls and slowing down movement ... */
+
+  camEnt.transform.position.x = /* Math.cos(time) animate camera */;
+  camEnt.transform.position.y = /* Math.sin(time) animate camera */
+
+  /* ... more code for death animation, etc ... */
+  
+  if(ent.scene.app.timeElapsed > /* timeToRestart */) {
+      scene.app.playerDied();  // reset level
+  }
+};
+
+```
+
+Problemet var att få tag på den entity som jag ville få tag på. Spelar-entityn har inte naturligt tillgång till `camEnt`. Men eftersom alla entitys har tillgång till den scen de tillhör så går det att titta i scenens lista över entitys. Dock måste man undersöka en entity i taget. I värsta går man igenom hela listan av entitys för att hitta den man letar efter. Resultatet är följande typ av kod varje gång vi vill hitta en specifik entity.
+
+```js
+var ent;
+
+for(var i = 0; i < scene.entities.length; i++) {
+  if(scene.entities[i] == /* some condition */) {
+    // found it!
+    ent = scene.entities[i];
+    break;
+  }
+}
+
+// do something with `ent`
+```
+
+Om man tittar på ovanstående kod kan man tänka sig att det borde kunna sättas i en funktion, men riktigt så enkelt är det inte. Det skapas inte något unikt ID för entiteter, så villkoren som behöver uppfyllas beror lite på användningsområdet. Om vi vill få tag i spelets kameraentity så är det enda tillvägagångssättet att undersöka om entityn har en `CameraComponent`.
+
+```js
+var camEnt;
+for(var i = 0; i < scene.entities.length; i++) {
+  if(typeof scene.entities[i].components.camera !== 'undefined') {
+    // found it!
+    camEnt = scene.entities[i];
+    break;
+  }
+}
+```
+
+Visserligen går det att lösa genom att skapa en funktion som tar en jämförelsefunktion som inparameter, men då accepterar vi grundfelet som orsakar det här problemet. När något händer i entity `A` så vill vi att det ska avfyra något i entity `B`. Med ovanstående tillvägagångssätt hämtar vi i koden för `A` först entity `B` och sedan gör vi något. Men detta är inte optimalt eftersom det då potentiellt finns en mängd kod som har att göra med `B` på ställen i kodbasen som annars inte har något alls att göra med `B`.
+
+Det vi vill göra är att separera avfyrandet från beteendet; vi vill skapa ett meddelandesystem som t. ex. en eventbuss. Skillnaden blir att när något händer i `A` så kan `A` direkt skicka iväg ett meddelande, t. ex. `'jump'`, i eventbussen. Efter meddelandet är iväg behöver `A` inte längre göra något, och vi har istället kod i `B` som väntar på att meddelandet `'jump'` ska komma. När meddelandet kommer finns kod hos `B` som tar hand om det. Meddelandesystemet skickar med en referens till entiteten som skickade meddelandet om det behövs.
+
+Exempel (2) från ovan, när spelarens figur landar så skakar kameran till, hjälps också av meddelandesystemet. För att hålla reda på när spelaren har landat _och_ innan kameran har börjat skaka tilldelades ett attribut `scene._groundedHappened` till scenen. Detta för att båda entitys enkelt kommer åt den scene de båda tillhör genom `Entity.scene`. Den nya variabeln innehåller `true` om spelaren precis har landat och `false` när kameran börjat skaka.
+
+```js
+// ... in code for entering `grounded` state ...
+playerEntity.scene._groundedHappened = true;
+```
+
+Senare i koden för kameran.
+
+```js
+// in cameraEntity.script function
+if(ent.scene._groundedHappened == true) {
+  ent.scene._groundedHappened = false;
+  ent.startTime = ent.scene.app.timeElapsed;
+} else {
+  // ... Do shake animation ...
+}
+```
+
+Detta separerar koden, men om vi hade använt ett meddelandesystem så hade vi inte behövt hålla reda på `scene._groundedHappened` på ett ställe som båda entitys har tillgång till.
+
+Med meddelandesystemet får vi bättre isolering av kod. Vi har inte längre spelarentiteter som kontrollerar kameraentiteter, utan istället spelarentiteter som "ropar ut" när något händer och kameraentiteter som lyssnar och reagerar.
+
+
+##### Callback från fysikvärlden
+
+För vi i spelvärlden ska kunna reagera på kollisioner som händer i fysikvärlden har vi sedan tidigare sett att en callback-funktion anropas.
+
+```js
+// from PlatformGameFactory.createPlayer(scene, options)
+
+myPhysicsComponent.on(
+  'collision',
+  function(otherBody, collisionVector) {
+    if(Math.abs(collisionVector.x) < Math.abs(collisionVector.y)
+        && collisionVector.y > 0) {
+      // Landed, so don't bounce!
+      this.body.vel.y = 0;
+
+      // Trigger grounded state
+      playerEntity.components.fsm._fsm.triggerEvent('ground');
+    }
+
+    if(otherBody.tag === 'goal') {
+      finishLevel(scene);
+    }
+
+    if(otherBody.tag === 'enemy') {
+      if(!finished) {
+        playerEntity.components.fsm._fsm.triggerEvent('die');
+      }
+    }
+  });
+```
+
+Denna lösning fungerade förträffligt bra i och med att båda påverkade fysikkroppar kunde reagera "på sitt eget håll" men fortfarande basera beslut på information om den andra fysikkroppen.
 
 
 #### Utmaning: FSM är bra när man vill vara väldigt noggrann
-- Trodde att jag skulle kunna använda min FSM till allt, men det gjorde det mesta lite krångligt.
 
-I slutändan använde jag bara _fsm_ för spelarens fyra tillstånd: `grounded`, `jumping`, `finished` och `dead`. Det bler alldeles för pilligt att "dra alla kablar".
+Under en lång period var jag övertygad om att en FSM (Finite State Machine) skulle kunna användas till allt. När jag faktiskt använde den visade det sig att en FSM kräver att man specificerar alla transitions mellan olika states. Om alla states ska ha en transition till alla andra states, och man har `S` antal states och `T` antal transitions, så behöver man för `S-1` transitions per state. Totalt blir det `T = S*(S-1) = S^2+S` transitions. Det passar alltså bäst till fall där det krävs väldigt få transitions per state eller där antalet states är få.
+
+
+##### Entity-tillstånd
+
+I slutändan använde jag FSM enbart för spelarens fyra tillstånd: `grounded`, `jumping`, `finished` och `dead`. Det mesta i spelet är rätt enkelt, så det behövs inte mer än ett eller ett par tillstånd. Med så få tillstånd var det mindre omväg att helt enkelt hålla reda på sakerna med "fulare" metoder, t. ex. globala eller "semi-globala" variabler.
 
 BILD PÅ STATE MACHINE FÖR SPELAREN
 
@@ -631,15 +741,25 @@ fsm.createState('jumping')
   .addTransition('finish', 'finished');
 ```
 
-Kolla hur störigt det är att behöva lägga till alla transitions. Sjukt jobbigt att upprepa detta för varje state.
+Notera den mängd `.addTransition(String event, String stateName)` som används. 
 
-Vad använde jag istället? Det mesta i spelet är rätt enkelt, så det behövs inte mer än ett eller ett par tillstånd. Med så få tillstånd var det mindre omväg att helt enkelt hålla reda på sakerna (exempel).
 
-När spelaren dör eller klarar en bana då? Det sånt jag hade tänkt använda _fsm_ till.
+##### Spelvärldens tillstånd
 
-Vad händer när spelaren dör?
-Vad händer när en bana avklaras?
-app.funktioner() som håller reda på spelets tillstånd.
+När spelaren dör eller klarar en bana ändras spelets tillstånd. Från början hade jag tänkt använda FSM till detta, men det blev bökigt att implementera. Istället skapades ett antal `app.funktioner()` som håller reda på spelets tillstånd, uppdaterar, osv.
+
+```js
+// Game state
+app.levelIds = [1, 2, 3];
+app.currentLevelIndex = 0;
+app.lives = 3;
+
+// Game state functions
+app.resetGame(): Resets level state
+app.nextLevel(): Goes to next level, or start screen if at last level
+app.loadLevel(levelId): Loads level with `levelId`
+app.playerDied(): Decrement number of lives and restart level
+```
 
 Det är klart att jag skulle kunnat bygga eller refaktorera spelmotorn för att bättre hantera dessa saker, men syftet var att sluta utveckla spelmotorn och istället utveckla ett spel!
 
@@ -650,18 +770,47 @@ Det är klart att jag skulle kunnat bygga eller refaktorera spelmotorn för att 
 
 Fysikmotorn har en mängd användbara funktioner, och det vore trevligt att använda den till dess styrkor. Kollisionsdetektering är en av grundpelarna i en fysiksimulering, men om man kan vara flexibel med hur eller när den används så blir den ännu mer användbar för spel.
 
-Inspiration har tagits från fysikmotorn Box2D, men jag är säker att många andra fysikmotorer har samma funktionalitet.
+Inspiration har tagits från fysikmotorn Box2D, men jag är säker att många andra fysikmotorer har samma funktionalitet. Vi har redan pratat om callbacks, men det finns mer.
+
+
+##### Fysiksimulering med fixt tidssteg
+
+Detta är en optimering, och det gjordes för att fysiksimuleringen skulle bli mer robust. Detta orsakade problem med callbacks eftersom callbacken köas när en kollision upptäcks. Med fixt tidssteg introduceras relativt ofta fall där två eller fler simuleringssteg körs mellan varje spelmotoruppdatering.
+
+BILD PÅ FYSIKSIMULERINGSSTEG OCH SPELUPPDATERINGSTID
+
+
+Det som kan hända är att en kropp flyttas "fram och tillbaka" under simuleringsstegen och rapporterar en kollision för mer än ett simuleringssteg. Då registreras callback-funktionen mer än en gång och blir också anropad samma antal gånger.
+
+BILD PÅ FRAM-OCH-TILLBAKASTUDS
+
+För att lösa denna bugg implementerades en callback-kö som försäkrar att en callback mellan två kroppar endast kan köas en gång.
+
+```js
+World.prototype.queueCallback = function(bodyA, bodyB, collisionVector) {
+
+  for(var i = 0; i < this.callbackQueue.aBodies.length; i++) {
+    if(this.callbackQueue.aBodies[i] === bodyA
+      && this.callbackQueue.bBodies[i] === bodyB) {
+      // pair already exists
+      return;
+    }
+  }
+
+  this.callbackQueue.aBodies.push(bodyA);
+  this.callbackQueue.bBodies.push(bodyB);
+  this.callbackQueue.collisionVectors.push(collisionVector);
+};
+```
 
 
 ##### Bitmask-lager
 
-Fysikmotorn innehåller en värld, och i den världen studsar saker omkring. Jag ville använda fysikmotorn, men ha vissa saker som inte påverkar eller påverkas av spelaren. En lösning är att ha två fysikvärldar och synkronisera objekt som befinner sig i båda.
+Fysikmotorn innehåller en värld, och i den världen studsar saker omkring. Jag ville använda fysikmotorn till så mycket som möjligt av spelets rörelser, men kunna kontrollera huruvida vissa objekt  påverkar varandra eller inte. I spelet skapas ett antal små "skärvor" när spelaren rör vid ett gult block. Dessa skärvor bör studsa på mark och hinder, men inte påverka spelaren.
 
-Problem:
-  Vilken fysikvärld är "rätt" om de skiljer sig?
-  Att ha dubbla kopior kostar dubbelt minne. Vi vill hålla oss ifrån att onödigtvis ta upp plats i minnet.
+Ett angreppssätt är att ha två fysikvärldar och synkronisera objekt mellan de bpda världarna. Ett problem med detta angreppsätt är att vi behöver ta ställning till vilken av de två fysikvärldarna som är "facit" om de skulle skilja sig åt. Ett annat problem är att man behöver ha dubbla kopior för varje fysikkropp som finns i båda fysikvärldarna, och det kostar i minne. Vi vill gärna undvika dessa problem.
 
-Fysiklager to the rescue. Bitmask. I kollisionsdetekteringen ignoreras kollisioner mellan kroppar som inte delar åtminstone ett fysiklager med varandra.
+Ett annat angreppsätt är att använda bitmasker för att hålla reda på en eller flera "lager" som en fysikkropp tillhör. Exakt hur dessa bitmasker fungerar finns beskrivet tidigare i rapporten. I kollisionsdetekteringen ignoreras kollisioner mellan kroppar som inte delar åtminstone ett fysiklager med varandra.
 
 ```js
 var pc = new PhysicsComponent({
@@ -675,34 +824,55 @@ var pc = new PhysicsComponent({
 wall.addComponent(pc);
 ```
 
+I ovanstående kod resulterar `PHYSICS_LAYER_ONE | PHYSICS_LAYER_TWO` i ett värde som betyder att fysikkroppen kommer att kunna kollidera med andra fysikkroppar i både `PHYSICS_LAYER_ONE` och `PHYSICS_LAYER_TWO`, även om dessa kroppar bara finns i en utav de två lagren.
+
 
 ##### Sensorkroppar
-Känna av överlapp men inte göra något mer än det.
 
+Namnet sensor är lånat från terminologin som fysikmotorn _Box2D_ använder. Det syftar till en fysikkropp som existerar endast med syfte att anropa en callback (eller ett event). När en kollision sker kommer sensors alltså inte ha någon fysikalisk påverkan på fysikkroppen som den kolliderar med. Detta åstadkoms simpelt nog genom att inte registrera en kollision, utan bara en callback.
 
-#### Utmaning: Callbacks körs flera gånger om
+I finns ett spelelement som är en sensor; de gula lådorna som exploderar till skärvor när spelaren vidrör dem.
 
-Hade trubbel med callbacks som kördes flera gånger. Kollision mellan två objekt registreras mer än en gång i tidsstegshoppandet så fick se till att bara tillåta registrering av callback mellan två objekt en gång (A-B och B-A behandlas likadant).
 
 
 #### Utmaning: Dynamisk text
-Dynamisk text i WebGL (och GL i allmänhet) är knepigt. I webbläsaren kan man använda den inbyggda textrenderingen om man vill. Jag ville gärna att texten var en del av "världen", så jag behövde lösa det på annat vis.
 
-Skapa entitys och arrangera dem så att de bildar bokstäver.
+Dynamisk text i WebGL (och GL i allmänhet) är knepigt. I webbläsaren kan man använda den inbyggda textrenderingen om man vill. Jag ville gärna att texten var en del av "världen", så jag behövde lösa det på annat vis. Dessutom hade jag begränsat mig till att använda spelmotorns befintliga kapabilitet för att lösa mina problem.
+
+Likt hur jag skapade startskärmen i Pong-spelet så skapar jag block som formar bokstäver och ord. Skillnaden med Pong är att startskärmen var statisk. Så jag skrev ett par funktioner som tillsammans generar en "layout" för varje bokstav i en sträng, skapar block-entitys i spelmotorn, placerar ut dem på skärmen och möjligtvis också lägger till ett script. Scriptet användes för att animera texten.
+
+```js
+
+// Creates entitys based on a string and a cube side length
+function createBlockText(String s, Float cube_size)
+
+// Creates a layout array from a string
+function createStringLayout(String s)
+
+// Creates a layout array from a character
+function createCharacterLayout(Char c)
+
+// Sets up text position animation script based on anchor point
+function setupTextBlockBehavior(Entity e, Vec2 anchor_point)
+```
+
+Fördelen är att detta är ett enkelt sätt att få till dynamisk text. Den stora nackdelen är att det kräver onödigt mycket minne i och med att ett `Entity`-objekt skapas för varje "pixel" i en bokstav, inklusive allt som följer med.
 
 
 #### Utmaning: Att lägga till "känsla"
 Mycket easing-funktioner.
 
+mönster som uppstod är easing funktioner och tid som manipulerar position och andra variabler.
+
 
 #### 3D-rendering med WebGL
-
-...
+Jag tog 2D-representationen av världen och översatte den till 3D. Kort sagt innebar det att "gissa" djup utifrån
 
 
 
 ### Sammanfattning
 Sammanfattning av projektet osv.
+
 
 
 #### Att hantera saker som jag inte vet hur jag ska göra
@@ -718,3 +888,11 @@ Däremot finns ytterligare en fälla att trilla ned i. Och jag föll ner i den. 
 
 Det finns ett tankesätt som lyder "Make it work. Make it right. Make it fast.". Make it right syftar på att se till att driva bollen framåt, och det är helt okej att skriva kod som man helst inte talar högt om. Make it right syftar till när man ägnar sig åt att refaktorera den möjligtvis pinsamma kod, men som fungerar. Det sista steget är make it fast, och detta är något vi vill ägna oss åt först när vi identifierat att koden eller programmets prestanda påverkar programmets kvalitet.
 
+
+
+<!--
+Jump Dude allmänt
+Känsla
+3D-rendering
+Sammanfattning
+-->
